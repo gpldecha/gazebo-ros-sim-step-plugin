@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- We resume the logic in empty_world.launch, changing only the name of the world to be launched -->
+ 
+ <include file="$(find gazebo_ros)/launch/empty_world.launch">
+	<arg name="paused" value="true"/>
+	<arg name="physics" value="dart"/>
+	<arg name="use_sim_time" value="true"/>
+	<arg name="gui" value="true"/>
+	<arg name="headless" value="false"/>
+	<arg name="debug" value="false"/>
+  </include>
+
+  <!--node name="gazebo_step" pkg="gazebo_ros" type="gazebo" respawn="false" output="screen" args="-s libgazebo_step_ctrl.so" /-->
+
+</launch>
