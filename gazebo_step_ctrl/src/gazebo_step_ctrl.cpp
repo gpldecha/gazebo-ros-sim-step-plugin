@@ -18,7 +18,7 @@ void remove_old_shared_memory(const boost::interprocess::xsi_key &key)
         boost::interprocess::xsi_shared_memory::remove(xsi.get_shmid());
     }
     catch(boost::interprocess::interprocess_exception &e){
-        std::cerr<< "error: " << e.what() << std::endl;
+        std::cerr<< "remove_old_shared_memory error: " << e.what() << std::endl;
         if(e.get_error_code() != boost::interprocess::not_found_error){
             throw;
         }
@@ -37,7 +37,7 @@ class SimStepWorldPlugin : public WorldPlugin{
 public:
 
     SimStepWorldPlugin(): WorldPlugin(){
-
+        std::cout<< "SimStepWolrdPlugin [start]" << std::endl;
         struct sigaction sigIntHandler;
 
         sigIntHandler.sa_handler = singal_handler;
@@ -62,6 +62,7 @@ public:
         std::cout<< "memory size: " << region->get_size() << std::endl;
         std::memset(region->get_address(), flag_c, region->get_size());
         std::cout<< "flag_c: " << (int)shared_mem[0] << std::endl;
+        std::cout<< "SimStepWolrdPlugin  [end]" << std::endl;
     }
 
     ~SimStepWorldPlugin(){
@@ -102,13 +103,15 @@ public:
 
     // Called by the world update start event.
     void one_update(){
-       if(shared_mem == NULL)
-            return;
+       /*if(shared_mem == NULL)
+            return;*/
+       /*if((int)shared_mem[0] == -1)
+           return;
+
        while((flag_c == (int)shared_mem[0]) && !exit_flag){std::this_thread::sleep_for(std::chrono::microseconds(5));}
-       flag_c = (int)shared_mem[0];
-       if(exit_flag){
-           std::this_thread::sleep_for(std::chrono::seconds(1));
-       }
+       flag_c = (int)shared_mem[0];*/
+
+       //if(exit_flag){std::this_thread::sleep_for(std::chrono::seconds(1)); }
     }
 
 private:
