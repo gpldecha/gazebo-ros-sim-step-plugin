@@ -7,7 +7,7 @@ add_compile_options(-std=c++11 -Wno-write-strings)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED roscpp)
+find_package(catkin REQUIRED roscpp std_msgs message_generation)
 find_package(gazebo REQUIRED)
 find_package(Boost COMPONENTS python REQUIRED)
 
@@ -52,11 +52,11 @@ find_package(Boost COMPONENTS python REQUIRED)
 # )
 
 ## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
-#   Service1.srv
+ add_service_files(
+   FILES
+   Cmd.srv
 #   Service2.srv
-# )
+)
 
 ## Generate actions in the 'action' folder
 # add_action_files(
@@ -66,10 +66,10 @@ find_package(Boost COMPONENTS python REQUIRED)
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs  # Or other packages containing msgs
-# )
+generate_messages(
+   DEPENDENCIES
+   std_msgs  # Or other packages containing msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -103,7 +103,7 @@ find_package(Boost COMPONENTS python REQUIRED)
 catkin_package(
 #  INCLUDE_DIRS include
   LIBRARIES gazebo_step_ctrl
-#  CATKIN_DEPENDS other_catkin_pkg
+  CATKIN_DEPENDS std_msgs message_generation
 #  DEPENDS system_lib
 )
 

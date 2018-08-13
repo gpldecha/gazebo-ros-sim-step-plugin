@@ -1,6 +1,8 @@
 #include <boost/interprocess/xsi_shared_memory.hpp>
 #include <boost/interprocess/mapped_region.hpp>
-#include <boost/bind.hpp>
+
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/split.hpp>
 
 #include <gazebo/gazebo.hh>
 #include <gazebo/common/Plugin.hh>
@@ -8,43 +10,25 @@
 #include <gazebo/physics/physics.hh>
 #include <gazebo/transport/transport.hh>
 
+#include <ros/ros.h>
+#include "gazebo_step_ctrl/Cmd.h"
+
 #include <chrono>
 #include <thread>
+#include <ros/node_handle.h>
 
-void remove_old_shared_memory(const boost::interprocess::xsi_key &key)
-{
-    try{
-        boost::interprocess::xsi_shared_memory xsi(boost::interprocess::open_only, key);
-        boost::interprocess::xsi_shared_memory::remove(xsi.get_shmid());
-    }
-    catch(boost::interprocess::interprocess_exception &e){
-        std::cerr<< "remove_old_shared_memory error: " << e.what() << std::endl;
-        if(e.get_error_code() != boost::interprocess::not_found_error){
-            throw;
-        }
-    }
-}
+namespace gazebo {
 
-bool exit_flag = false;
-void singal_handler(int s){
-    exit_flag = true;
-}
-
-namespace gazebo
-{
 class SimStepWorldPlugin : public WorldPlugin{
 
 public:
 
-    SimStepWorldPlugin(): WorldPlugin(){
-        std::cout<< "SimStepWolrdPlugin [start]" << std::endl;
-        struct sigaction sigIntHandler;
+    enum class STATE { RUN, STOP, STEP };
 
-        sigIntHandler.sa_handler = singal_handler;
-        sigemptyset(&sigIntHandler.sa_mask);
-        sigIntHandler.sa_flags = 0;
+public:
 
-        sigaction(SIGINT, &sigIntHandler, NULL);
+    SimStepWorldPlugin(): nh_ptr(NULL), WorldPlugin(){
+        std::cout<< "\033[1;32m" << "SimStepWolrdPlugin [construct start]" << "\033[0m" << std::endl;
 
         using namespace boost::interprocess;
 
@@ -52,20 +36,22 @@ public:
 
         xsi_key key(path, 1);
 
-        remove_old_shared_memory(key);
+        try{
+            shm = new xsi_shared_memory(open_or_create, key, 1);
+        }catch(boost::interprocess::interprocess_exception &e){
+            std::cout<< "\\033[1;31m" << "SimStepWolrdPlugin " << e.what() << "\033[0m" << std::endl;
+        }
 
-        shm = new xsi_shared_memory(create_only, key, 1);
         region = new mapped_region(*shm, read_write);
-        std::cout<< "address: " << region->get_address() << std::endl;
         shared_mem = static_cast<char*>(region->get_address());
         flag_c = 0;
-        std::cout<< "memory size: " << region->get_size() << std::endl;
-        std::memset(region->get_address(), flag_c, region->get_size());
-        std::cout<< "flag_c: " << (int)shared_mem[0] << std::endl;
-        std::cout<< "SimStepWolrdPlugin  [end]" << std::endl;
+        std::memset(region->get_address(), -1, region->get_size());
+        current_state = STATE::RUN;
+        previous_state = STATE::RUN;
+        std::cout<< "\033[1;32m" << "SimStepWolrdPlugin [construct finished]" << "\033[0m" << std::endl;
     }
 
-    ~SimStepWorldPlugin(){
+    ~SimStepWorldPlugin() override{
         struct shm_remove
         {
             int shmid_;
@@ -74,51 +60,94 @@ public:
         } remover(shm->get_shmid());
     }
 
-    void Load(physics::WorldPtr _world, sdf::ElementPtr _sdf) {
-        // Create a new transport node
-        node.reset(new transport::Node());
-        // Initialize the node with the world name
-        node->Init(_world->Name());
-        // Create a publisher
-        pub = node->Advertise<msgs::WorldControl>("~/world_control");
-        // Listen to the update event. Event is broadcast every simulation
-        // iteration.
-        updateConnection = event::Events::ConnectWorldUpdateEnd(
-                    boost::bind(&SimStepWorldPlugin::one_update, this));
-
-
-        // Configure the initial message to the system
-        msgs::WorldControl worldControlMsg;
-
-        // Set the world to paused
-        worldControlMsg.set_pause(0);
-
-        // Set the step flag to true
-        worldControlMsg.set_step(1);
-
-        // Publish the initial message.
-        pub->Publish(worldControlMsg);
-        std::cout << "Publishing Load." << std::endl;
+    bool cmd_callback(gazebo_step_ctrl::Cmd::Request& req, gazebo_step_ctrl::Cmd::Response& res){
+        res.str = "none";
+        std::vector<std::string> elements;
+        boost::split(elements, req.str, boost::is_any_of(" "), boost::token_compress_on);
+        if(elements.size() < 2){
+            std::cout<< req.str << " could not be parsed" << std::endl;
+            return false;
+        }
+        if(elements[0] == "get"){
+            if(elements[1] == "max_step_size"){
+                std::cout<< "here" << std::endl;
+                res.str = std::to_string(world_ptr->Physics()->GetMaxStepSize());
+            }
+        }else if(elements[0] == "set"){
+        }else{
+            std::cout<< "no such command: " << elements[0] << " supported " << std::endl;
+        }
+        return true;
     }
 
-    // Called by the world update start event.
+    void Load(physics::WorldPtr _world, sdf::ElementPtr _sdf) override {
+        world_ptr = _world;
+        int argc = 0;
+        char** argv = NULL;
+        ros::init(argc, argv, "gazebo_step_ctrl", ros::init_options::NoSigintHandler);
+        nh_ptr = new ros::NodeHandle();
+        service = nh_ptr->advertiseService("gazebo_step_ctrl/cmd", &gazebo::SimStepWorldPlugin::cmd_callback, this);
+        ros::spinOnce();
+
+        updateConnection = event::Events::ConnectWorldUpdateEnd(
+                    boost::bind(&SimStepWorldPlugin::one_update, this));
+    }
+
+    void stop(){
+        while(((int)shared_mem[0] == -2)){
+            current_state = STATE::STOP;
+            std::this_thread::sleep_for(std::chrono::microseconds(1));
+            ros::spinOnce();
+        }
+    }
+
+    void step(){
+        while((flag_c == (int)shared_mem[0])){
+            ros::spinOnce();
+        }
+        flag_c = (int)shared_mem[0];
+    }
+
     void one_update(){
-       /*if(shared_mem == NULL)
-            return;*/
-       /*if((int)shared_mem[0] == -1)
-           return;
+        ros::spinOnce();
 
-       while((flag_c == (int)shared_mem[0]) && !exit_flag){std::this_thread::sleep_for(std::chrono::microseconds(5));}
-       flag_c = (int)shared_mem[0];*/
+        if(shared_mem == NULL)
+            return;
 
-       //if(exit_flag){std::this_thread::sleep_for(std::chrono::seconds(1)); }
+        previous_state = current_state;
+        switch ((int)shared_mem[0]){
+            case -1: current_state = STATE::RUN; break;
+            case -2: current_state = STATE::STOP; break;
+            default: current_state = STATE::STEP; break;
+        }
+        if(current_state != previous_state) {
+            std::string msg;
+            switch (current_state){
+                case STATE::RUN:  msg = "state: RUN"; break;
+                case STATE::STOP:  msg = "state: STOP"; break;
+                case STATE::STEP: msg = "state: STEP"; break;
+            }
+            std::cout<< msg << std::endl;
+        }
+
+        if(current_state == STATE::RUN){
+            return;
+        }else if(current_state == STATE::STOP){
+            stop();
+        }else if(current_state == STATE::STEP){
+            step();
+        }
     }
 
 private:
     // Pointer to the world_controller
     transport::NodePtr node;
-    transport::PublisherPtr pub;
     event::ConnectionPtr updateConnection;
+    physics::WorldPtr world_ptr;
+    STATE current_state, previous_state;
+
+    ros::NodeHandle* nh_ptr;
+    ros::ServiceServer service;
 
     boost::interprocess::xsi_shared_memory* shm;
     boost::interprocess::mapped_region* region;

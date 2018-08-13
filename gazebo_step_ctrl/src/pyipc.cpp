@@ -13,14 +13,22 @@ public:
 
     Xsi(){
 
+        std::cout<< "\033[1;32m" << "Xsi [constructor start]" << "\033[0m" << std::endl;
+
         char *path = "/usr";
 
         xsi_key key(path, 1);
 
-        shm = new xsi_shared_memory(open_only, key);
+        try {
+            shm = new xsi_shared_memory(open_or_create, key, 1);
+        }catch(boost::interprocess::interprocess_exception &e){
+            std::cout<< "\\033[1;31m" << "Xsi " << e.what() << "\033[0m" << std::endl;
+        }
 
-        //Map the whole shared memory in this process
+            //Map the whole shared memory in this process
         region = new mapped_region(*shm, read_write);
+
+        std::cout<< "\033[1;32m" << "Xsi [constructor end]" << "\033[0m" << std::endl;
     }
 
     ~Xsi(){
@@ -33,9 +41,21 @@ public:
         } remover(shm->get_shmid());
     }
 
-    void ping(){
+    void step(){
         std::memset(region->get_address(), i, region->get_size());
         i=(i+1)%128;
+    }
+
+    void initialise_step(){
+        std::memset(region->get_address(), 0, region->get_size());
+    }
+
+    void run(){
+        std::memset(region->get_address(), -1, region->get_size());
+    }
+
+    void stop(){
+        std::memset(region->get_address(), -2, region->get_size());
     }
 
 private:
@@ -52,6 +72,9 @@ BOOST_PYTHON_MODULE(pyipc)
 {
     using namespace boost::python;
     class_<Xsi>("Xsi")
-            .def("ping", &Xsi::ping)
-            ;
+            .def("step", &Xsi::step)
+            .def("initialise_step", &Xsi::initialise_step)
+            .def("run",  &Xsi::run)
+            .def("stop", &Xsi::stop)
+    ;
 }
