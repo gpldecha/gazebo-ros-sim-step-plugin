@@ -70,7 +70,6 @@ public:
         }
         if(elements[0] == "get"){
             if(elements[1] == "max_step_size"){
-                std::cout<< "here" << std::endl;
                 res.str = std::to_string(world_ptr->Physics()->GetMaxStepSize());
             }
         }else if(elements[0] == "set"){
@@ -127,7 +126,6 @@ public:
                 case STATE::STOP:  msg = "state: STOP"; break;
                 case STATE::STEP: msg = "state: STEP"; break;
             }
-            std::cout<< msg << std::endl;
         }
 
         if(current_state == STATE::RUN){
